@@ -3,50 +3,56 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penalty Simulator</title>
+<title>Penalty Game — Mobile Friendly</title>
 <style>
 :root{
   --goal-w:175; --goal-h:100; --ball-d:25; --keeper-d:45;
 }
-html,body{
-  height:100%;
-  margin:0;
-  font-family:Inter,Segoe UI,Arial;
-  background:#0b1220;
-  color:#eee;
+html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Arial;background:#0b1220;color:#eee}
+.wrap{display:flex;gap:20px;padding:12px;align-items:flex-start}
+.game{position:relative;flex:1;max-width:900px}
+canvas{display:block;border-radius:6px;width:100%;height:auto;background:#000}
+.ui{width:260px;min-width:220px}
+.panel{background:#071726;padding:12px;border-radius:8px}
+h3{margin:6px 0 10px 0;font-weight:600}
+.score{font-size:18px;margin-bottom:10px}
+.hint{font-size:13px;color:#cfe9ff}
+
+/* touch controls overlay */
+.touch-controls{
+  position:absolute;
+  left:0; right:0; bottom:12px;
+  display:flex; justify-content:space-between; pointer-events:none;
+  padding:0 12px;
 }
-.wrap{
-  display:flex; gap:20px; padding:18px;
-}
-.game{
-  background:#1572a1;
+.touch-btn{
+  pointer-events:auto;
+  user-select:none;
+  -webkit-user-select:none;
+  width:46%;
+  max-width:220px;
+  min-height:56px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(11,39,51,0.85);
   border-radius:10px;
-  padding:12px;
-  box-shadow:0 6px 18px rgba(0,0,0,.4);
-}
-canvas{
-  display:block;
-  border-radius:6px;
-}
-.ui{
-  width:260px;
-}
-.panel{
-  background:#071726;
-  padding:12px;
-  border-radius:8px;
-}
-h3{
-  margin:6px 0 10px 0;
-  font-weight:600;
-}
-.score{
-  font-size:18px;
-  margin-bottom:10px;
-}
-.hint{
-  font-size:13px;
   color:#cfe9ff;
+  font-weight:700;
+  font-size:18px;
+  box-shadow:0 6px 18px rgba(0,0,0,0.5);
+  border:2px solid rgba(5,47,63,0.6);
+  transition:transform .06s ease;
+  touch-action: none; /* important for pointer events */
+}
+.touch-btn:active{transform:translateY(2px);}
+
+/* responsive: on narrow screens stack UI under game */
+@media (max-width:900px){
+  .wrap{flex-direction:column;gap:12px}
+  .ui{width:100%}
+  .game{max-width:100%}
+  .touch-controls{bottom:8px}
 }
 </style>
 </head>
@@ -54,28 +60,32 @@ h3{
 <div class="wrap">
   <div class="game">
     <canvas id="c" width="760" height="420"></canvas>
+
+    <!-- touch controls overlay -->
+    <div class="touch-controls" aria-hidden="false">
+      <div id="btn-height" class="touch-btn">Hold ↑ (Height)</div>
+      <div id="btn-lat" class="touch-btn">Hold ↓ (Direction)</div>
+    </div>
   </div>
+
   <div class="ui">
     <div class="panel">
-      <h3>Penalty Simulator</h3>
-      <div class="score">
-        Current streak: <span id="streak">0</span><br>
-        High score: <span id="high">0</span>
-      </div>
-      <div class="hint">
-        Controls:<br>
-        Hold <b>↑</b> to set height (release to lock)<br>
-        Hold <b>↓</b> to set direction (release to lock)<br>
-        When both locked the ball will shoot automatically. Good luck!
-      </div>
+      <h3>Penalty prototype</h3>
+      <div class="score">Current streak: <span id="streak">0</span><br>High score: <span id="high">0</span></div>
+      <div class="hint">Controls:<br>Hold <b>↑</b> to set height (release to lock).<br>Hold <b>↓</b> to set lateral (release to lock).<br>When both locked the ball will shoot automatically.<br><em>On mobile: press & hold the on-screen buttons.</em></div>
     </div>
   </div>
 </div>
 
 <script>
+// ---------- keep your gameplay constants & logic ----------
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
-const W=canvas.width, H=canvas.height;
+const LOGICAL_W=760, LOGICAL_H=420; // internal logic size
+canvas.width = LOGICAL_W;
+canvas.height = LOGICAL_H;
+
+let W = canvas.width, H = canvas.height;
 
 const GOAL_W=175, GOAL_H=100, BALL_D=25, KEEPER_D=45;
 const R_BALL=BALL_D/2, R_KEEP=KEEPER_D/2;
@@ -83,34 +93,30 @@ const R_BALL=BALL_D/2, R_KEEP=KEEPER_D/2;
 const goalX=(W-GOAL_W)/2, goalY=60;
 const goalLeft=goalX, goalRight=goalX+GOAL_W, goalTop=goalY, goalBottom=goalY+GOAL_H;
 
-// field box sizes (pixels)
-const SIX_YARD_HEIGHT = 40;    // six-yard box height (visual)
-const BOX18_HEIGHT = 110;      // 18-yard box height (visual)
+const SIX_YARD_HEIGHT = 40;
+const BOX18_HEIGHT = 110;
 const BOX18_LEFT = goalLeft - 60;
 const BOX18_WIDTH = GOAL_W + 120;
 
-/* horizontal lateral bar (stays below the 18-yard box) */
-const BAR_L_Y = goalBottom + BOX18_HEIGHT + 8; // final y for lateral bar
+const BAR_L_Y = goalBottom + BOX18_HEIGHT + 8;
 
-/* place the vertical height bar immediately to the LEFT of the left-hand line of the 18-yard box,
-   and place it vertically so it sits over the green (top aligned to goalBottom) */
-const BAR_V_MARGIN = 6; // small gap between 18-yard box left line and the vertical bar
+// place vertical bar to left of 18-yard box over the green
+const BAR_V_MARGIN = 6;
 const BAR_V_WIDTH = 10;
 const BAR_V_X = BOX18_LEFT - BAR_V_WIDTH - BAR_V_MARGIN;
-const BAR_V_Y = goalBottom;           // top placed at top of grass (goalBottom)
-const BAR_V_H = BOX18_HEIGHT;         // height matches the 18-yard box visually
+const BAR_V_Y = goalBottom;
+const BAR_V_H = BOX18_HEIGHT;
 
+const bar={v:{x:BAR_V_X,y:BAR_V_Y,w:BAR_V_WIDTH,h:BAR_V_H},l:{x:goalX,y:BAR_L_Y,w:GOAL_W,h:10}};
+
+// game state (unchanged)
 let ball={x:W/2,y:goalBottom+40+R_BALL,r:R_BALL,vx:0,vy:0,moving:false,target:null};
 let keeper={x:W/2,y:goalBottom-R_KEEP,r:R_KEEP,vx:0,vy:0,moving:false,target:null};
-
-/* set the bar values */
-const bar={v:{x:BAR_V_X,y:BAR_V_Y,w:BAR_V_WIDTH,h:BAR_V_H},l:{x:goalX,y:BAR_L_Y,w:GOAL_W,h:10}};
 
 let chargingHeight=false,chargingLat=false;
 let heightValue=null,latValue=null;
 let hvDir=1, lvDir=-1, hvPos=0, lvPos=1;
 const OSC_SPEED=0.9;
-
 let streak=0,high=0;
 const streakEl=document.getElementById('streak');
 const highEl=document.getElementById('high');
@@ -155,13 +161,14 @@ function circlesOverlap(a,b){
   return dx*dx+dy*dy<=r*r;
 }
 
-// --------- CROWD (stationary positions that fill whole width) ----------
+// ---------- drawing (keeps your final visuals) ----------
+// NOTE: I've kept these functions intentionally compact — they're the same visuals you requested earlier
 const crowdRects = [];
 let CROWD_BOTTOM = 0;
 (function generateCrowd(){
-  const baseTop = 10; // top offset for crowd area
+  const baseTop = 10;
   const rowHeight = 14;
-  const cellWidth = 9; // consistent cell width to cover entire canvas width
+  const cellWidth = 9;
   const cols = Math.ceil(W / cellWidth);
   const rows = 6;
   for(let r=0;r<rows;r++){
@@ -178,22 +185,18 @@ let CROWD_BOTTOM = 0;
   CROWD_BOTTOM = baseTop + rows*rowHeight + 2;
 })();
 
-// ---------- Drawing Functions ----------
-
 function drawBackground(){
-  // clear background
   ctx.fillStyle = '#0b1220';
   ctx.fillRect(0,0,W,H);
 
-  // draw stationary crowd rectangles (flicker brightness only)
   for(const rect of crowdRects){
-    const flicker = 0.25 + Math.random()*0.5; // alpha 0.25..0.75
+    const flicker = 0.25 + Math.random()*0.5;
     const col = Math.max(0, Math.min(255, rect.base + Math.floor((Math.random()-0.5)*20)));
     ctx.fillStyle = `rgba(${col},${col},${col},${flicker})`;
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
   }
 
-  // draw track (brick-red) between crowd bottom and grassTop (goalBottom)
+  // brick-red track between crowd and field
   const trackTop = CROWD_BOTTOM;
   const grassTop = goalBottom;
   if (grassTop > trackTop) {
@@ -204,14 +207,14 @@ function drawBackground(){
     ctx.fillRect(0, trackTop, W, grassTop - trackTop);
     ctx.save();
     ctx.globalAlpha = 0.06;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 6; i++){
       const y = trackTop + (i / 6) * (grassTop - trackTop);
       ctx.fillRect(0, y, W, 2);
     }
     ctx.restore();
   }
 
-  // Field: fill starting at goalBottom (top of the field aligns with bottom of penalty box)
+  // grass starting at goalBottom
   const grassY = goalBottom;
   const grad = ctx.createLinearGradient(0, grassY, 0, H);
   grad.addColorStop(0,'#2c7a32');
@@ -219,9 +222,8 @@ function drawBackground(){
   ctx.fillStyle = grad;
   ctx.fillRect(0, grassY, W, H - grassY);
 
-  // subtle static stripes on grass
-  ctx.save();
-  ctx.globalAlpha = 0.06;
+  // subtle stripes
+  ctx.save(); ctx.globalAlpha = 0.06;
   const stripeCount = 6;
   for(let i=0;i<stripeCount;i++){
     const y = grassY + (i / stripeCount) * (H - grassY);
@@ -229,7 +231,7 @@ function drawBackground(){
   }
   ctx.restore();
 
-  // draw only 6-yard and 18-yard boxes
+  // field lines
   drawFieldLines();
 }
 
@@ -237,208 +239,108 @@ function drawFieldLines(){
   ctx.save();
   ctx.strokeStyle = 'white';
   ctx.lineWidth = 3;
-  ctx.lineJoin = 'miter';
-
   // 6-yard box
   const sixWidth = GOAL_W * 0.5;
   const sixX = goalLeft + (GOAL_W - sixWidth) / 2;
   const sixY = goalBottom;
   ctx.strokeRect(Math.round(sixX)+0.5, Math.round(sixY)+0.5, Math.round(sixWidth), Math.round(SIX_YARD_HEIGHT));
-
   // 18-yard box
   ctx.strokeRect(Math.round(BOX18_LEFT)+0.5, Math.round(goalBottom)+0.5, Math.round(BOX18_WIDTH), Math.round(BOX18_HEIGHT));
-
-  // slight goal line
+  // goal line
   ctx.beginPath();
-  ctx.moveTo(goalLeft, goalBottom - 1);
-  ctx.lineTo(goalLeft + GOAL_W, goalBottom - 1);
-  ctx.stroke();
-
+  ctx.moveTo(goalLeft, goalBottom - 1); ctx.lineTo(goalLeft + GOAL_W, goalBottom - 1); ctx.stroke();
   ctx.restore();
 }
 
-// Goal (unchanged)
 function drawGoal(){
   ctx.save();
-  ctx.lineWidth=4;
-  ctx.strokeStyle='#ffffffbb';
-  ctx.fillStyle='rgba(255,255,255,0.02)';
-  ctx.fillRect(goalLeft,goalTop,GOAL_W,GOAL_H);
-  ctx.strokeRect(goalLeft,goalTop,GOAL_W,GOAL_H);
-
-  // Net squares
-  ctx.strokeStyle='rgba(255,255,255,0.2)';
-  ctx.lineWidth=1;
-  for(let i=0;i<=GOAL_W;i+=GOAL_W/7){
-    ctx.beginPath(); ctx.moveTo(goalLeft+i,goalTop); ctx.lineTo(goalLeft+i,goalBottom); ctx.stroke();
-  }
-  for(let j=0;j<=GOAL_H;j+=GOAL_H/4){
-    ctx.beginPath(); ctx.moveTo(goalLeft,goalTop+j); ctx.lineTo(goalRight,goalTop+j); ctx.stroke();
-  }
+  ctx.lineWidth=4; ctx.strokeStyle='#ffffffbb'; ctx.fillStyle='rgba(255,255,255,0.02)';
+  ctx.fillRect(goalLeft,goalTop,GOAL_W,GOAL_H); ctx.strokeRect(goalLeft,goalTop,GOAL_W,GOAL_H);
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1;
+  for(let i=0;i<=GOAL_W;i+=GOAL_W/7){ ctx.beginPath(); ctx.moveTo(goalLeft+i,goalTop); ctx.lineTo(goalLeft+i,goalBottom); ctx.stroke();}
+  for(let j=0;j<=GOAL_H;j+=GOAL_H/4){ ctx.beginPath(); ctx.moveTo(goalLeft,goalTop+j); ctx.lineTo(goalRight,goalTop+j); ctx.stroke();}
   ctx.restore();
 }
 
-// Bars
 function drawBar(){
   ctx.save();
-  // vertical height bar: now placed immediately left of 18-yard box and over green
-  ctx.fillStyle='#0b2733';
-  ctx.fillRect(bar.v.x,bar.v.y,bar.v.w,bar.v.h);
-  ctx.strokeStyle='#052f3f';
-  ctx.strokeRect(bar.v.x,bar.v.y,bar.v.w,bar.v.h);
+  // vertical
+  ctx.fillStyle='#0b2733'; ctx.fillRect(bar.v.x,bar.v.y,bar.v.w,bar.v.h);
+  ctx.strokeStyle='#052f3f'; ctx.strokeRect(bar.v.x,bar.v.y,bar.v.w,bar.v.h);
   const hvY=bar.v.y+(1-hvPos)*(bar.v.h-4);
-  ctx.fillStyle=chargingHeight?'#ffeb3b':'#9fd6ff';
-  ctx.fillRect(bar.v.x+2,hvY,bar.v.w-4,4);
-  if(heightValue!==null){
-    const lockedY=bar.v.y+(1-heightValue)*(bar.v.h-4);
-    ctx.fillStyle='#ff6b6b';
-    ctx.fillRect(bar.v.x+1,lockedY-1,bar.v.w-2,6);
-  }
-
-  // horizontal lateral bar (unchanged position)
-  ctx.fillStyle='#0b2733';
-  ctx.fillRect(bar.l.x,bar.l.y,bar.l.w,bar.l.h);
-  ctx.strokeStyle='#052f3f';
-  ctx.strokeRect(bar.l.x,bar.l.y,bar.l.w,bar.l.h);
+  ctx.fillStyle=chargingHeight?'#ffeb3b':'#9fd6ff'; ctx.fillRect(bar.v.x+2,hvY,bar.v.w-4,4);
+  if(heightValue!==null){ const lockedY=bar.v.y+(1-heightValue)*(bar.v.h-4); ctx.fillStyle='#ff6b6b'; ctx.fillRect(bar.v.x+1,lockedY-1,bar.v.w-2,6); }
+  // horizontal
+  ctx.fillStyle='#0b2733'; ctx.fillRect(bar.l.x,bar.l.y,bar.l.w,bar.l.h);
+  ctx.strokeStyle='#052f3f'; ctx.strokeRect(bar.l.x,bar.l.y,bar.l.w,bar.l.h);
   const lvX=bar.l.x+lvPos*(bar.l.w-4);
-  ctx.fillStyle=chargingLat?'#ffeb3b':'#9fd6ff';
-  ctx.fillRect(lvX,bar.l.y+2,4,bar.l.h-4);
-  if(latValue!==null){
-    const lockedX=bar.l.x+latValue*(bar.l.w-4);
-    ctx.fillStyle='#ff6b6b';
-    ctx.fillRect(lockedX-1,bar.l.y+1,6,bar.l.h-2);
-  }
+  ctx.fillStyle=chargingLat?'#ffeb3b':'#9fd6ff'; ctx.fillRect(lvX,bar.l.y+2,4,bar.l.h-4);
+  if(latValue!==null){ const lockedX=bar.l.x+latValue*(bar.l.w-4); ctx.fillStyle='#ff6b6b'; ctx.fillRect(lockedX-1,bar.l.y+1,6,bar.l.h-2); }
   ctx.restore();
 }
 
-// Keeper (unchanged pixel-human)
 function drawKeeper(){
   ctx.save();
-  ctx.fillStyle='#fbc02d';
-  ctx.fillRect(Math.round(keeper.x-15), Math.round(keeper.y-10), 30, 30);
-  ctx.fillStyle='#f57f17';
-  ctx.fillRect(Math.round(keeper.x-20), Math.round(keeper.y-8), 5, 20);
-  ctx.fillRect(Math.round(keeper.x+15), Math.round(keeper.y-8), 5, 20);
-  ctx.fillStyle='#ffe0bd';
-  ctx.fillRect(Math.round(keeper.x-10), Math.round(keeper.y-25), 20, 20);
-  ctx.fillStyle='#222';
-  ctx.fillRect(Math.round(keeper.x-10), Math.round(keeper.y-25), 20, 6);
-  ctx.fillStyle='#000';
-  ctx.fillRect(Math.round(keeper.x-6), Math.round(keeper.y-18), 3, 3);
-  ctx.fillRect(Math.round(keeper.x+3), Math.round(keeper.y-18), 3, 3);
-  ctx.fillStyle='#d18f6a';
-  ctx.fillRect(Math.round(keeper.x-1), Math.round(keeper.y-14), 2, 2);
-  ctx.fillStyle='#900';
-  ctx.fillRect(Math.round(keeper.x-4), Math.round(keeper.y-12), 8, 2);
-  ctx.fillStyle='#c77f0a';
-  ctx.fillRect(Math.round(keeper.x-7), Math.round(keeper.y-5), 14, 4);
+  ctx.fillStyle='#fbc02d'; ctx.fillRect(Math.round(keeper.x-15), Math.round(keeper.y-10), 30, 30);
+  ctx.fillStyle='#f57f17'; ctx.fillRect(Math.round(keeper.x-20), Math.round(keeper.y-8), 5, 20); ctx.fillRect(Math.round(keeper.x+15), Math.round(keeper.y-8), 5, 20);
+  ctx.fillStyle='#ffe0bd'; ctx.fillRect(Math.round(keeper.x-10), Math.round(keeper.y-25), 20, 20);
+  ctx.fillStyle='#222'; ctx.fillRect(Math.round(keeper.x-10), Math.round(keeper.y-25), 20, 6);
+  ctx.fillStyle='#000'; ctx.fillRect(Math.round(keeper.x-6), Math.round(keeper.y-18), 3, 3); ctx.fillRect(Math.round(keeper.x+3), Math.round(keeper.y-18), 3, 3);
+  ctx.fillStyle='#d18f6a'; ctx.fillRect(Math.round(keeper.x-1), Math.round(keeper.y-14), 2, 2);
+  ctx.fillStyle='#900'; ctx.fillRect(Math.round(keeper.x-4), Math.round(keeper.y-12), 8, 2);
+  ctx.fillStyle='#c77f0a'; ctx.fillRect(Math.round(keeper.x-7), Math.round(keeper.y-5), 14, 4);
   ctx.restore();
 }
 
-// Ball — updated: classic soccer-style black pentagons
+// updated classic soccer ball drawing (keeps your last version)
 function drawBall(){
-  ctx.save();
-  ctx.translate(ball.x,ball.y);
-
-  // base sphere with subtle shading
+  ctx.save(); ctx.translate(ball.x,ball.y);
   const grad = ctx.createRadialGradient(-R_BALL*0.2,-R_BALL*0.2,0,0,0,R_BALL);
-  grad.addColorStop(0,'#ffffff');
-  grad.addColorStop(1,'#dddddd');
-  ctx.fillStyle=grad;
-  ctx.beginPath();
-  ctx.arc(0,0,R_BALL,0,Math.PI*2);
-  ctx.fill();
-
-  // thin outline
-  ctx.lineWidth=1.5;
-  ctx.strokeStyle='#999';
-  ctx.stroke();
-
-  // Helper: draw regular polygon (centered at cx,cy) with n sides
+  grad.addColorStop(0,'#ffffff'); grad.addColorStop(1,'#dddddd'); ctx.fillStyle=grad;
+  ctx.beginPath(); ctx.arc(0,0,R_BALL,0,Math.PI*2); ctx.fill();
+  ctx.lineWidth=1.5; ctx.strokeStyle='#999'; ctx.stroke();
   function drawPoly(cx,cy,r,sides,rot,fillStyle,strokeStyle){
     ctx.beginPath();
     for(let i=0;i<sides;i++){
       const a = rot + i*(2*Math.PI/sides);
-      const x = cx + r*Math.cos(a);
-      const y = cy + r*Math.sin(a);
+      const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
       if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
     ctx.closePath();
-    if(fillStyle){
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
-    }
-    if(strokeStyle){
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = strokeStyle;
-      ctx.stroke();
-    }
+    if(fillStyle){ ctx.fillStyle = fillStyle; ctx.fill(); }
+    if(strokeStyle){ ctx.lineWidth = 1; ctx.strokeStyle = strokeStyle; ctx.stroke(); }
   }
-
-  // central pentagon
-  const centerR = R_BALL * 0.28;
-  drawPoly(0, 0, centerR, 5, -Math.PI/2, '#000', '#fff');
-
-  // surrounding pentagons (5 around center)
-  const outerRadius = R_BALL * 0.62; // distance from center to centers of outer patches
-  for(let i=0;i<5;i++){
-    const ang = -Math.PI/2 + i*(2*Math.PI/5);
-    // slightly offset inward to keep patches on sphere shape
-    const cx = outerRadius * Math.cos(ang) * 0.92;
-    const cy = outerRadius * Math.sin(ang) * 0.92;
-    // rotate each pentagon so it points toward the center
-    const rot = ang + Math.PI/5;
-    drawPoly(cx, cy, centerR*0.9, 5, rot, '#000', '#fff');
-  }
-
-  // small black trim lines to suggest seams (subtle)
-  ctx.lineWidth = 0.8;
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-  for(let i=0;i<6;i++){
-    ctx.beginPath();
-    const a = i*(2*Math.PI/6);
-    ctx.moveTo(0,0);
-    ctx.lineTo(R_BALL*Math.cos(a)*0.6, R_BALL*Math.sin(a)*0.6);
-    ctx.stroke();
-  }
-
+  const centerR = R_BALL * 0.28; drawPoly(0,0,centerR,5,-Math.PI/2,'#000','#fff');
+  const outerRadius = R_BALL * 0.62;
+  for(let i=0;i<5;i++){ const ang = -Math.PI/2 + i*(2*Math.PI/5);
+    const cx = outerRadius * Math.cos(ang) * 0.92, cy = outerRadius * Math.sin(ang) * 0.92;
+    const rot = ang + Math.PI/5; drawPoly(cx, cy, centerR*0.9, 5, rot, '#000', '#fff'); }
+  ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  for(let i=0;i<6;i++){ ctx.beginPath(); const a = i*(2*Math.PI/6); ctx.moveTo(0,0); ctx.lineTo(R_BALL*Math.cos(a)*0.6, R_BALL*Math.sin(a)*0.6); ctx.stroke(); }
   ctx.restore();
 }
 
-// ---------- Main Loop ----------
-let last=performance.now();
+// ---------- game loop ----------
+let last = performance.now();
 function loop(ts){
-  const dt=ts-last; last=ts;
-
-  if(chargingHeight){
-    const delta=OSC_SPEED*dt/1000; hvPos+=delta*hvDir;
-    if(hvPos>1){hvPos=1;hvDir=-1;} if(hvPos<0){hvPos=0;hvDir=1;}
-  }
-  if(chargingLat){
-    const delta=OSC_SPEED*dt/1000; lvPos+=delta*lvDir;
-    if(lvPos>1){lvPos=1;lvDir=-1;} if(lvPos<0){lvPos=0;lvDir=1;}
-  }
+  const dt = ts - last; last = ts;
+  if(chargingHeight){ const delta = OSC_SPEED*dt/1000; hvPos += delta*hvDir; if(hvPos>1){hvPos=1;hvDir=-1;} if(hvPos<0){hvPos=0;hvDir=1;} }
+  if(chargingLat){ const delta = OSC_SPEED*dt/1000; lvPos += delta*lvDir; if(lvPos>1){lvPos=1;lvDir=-1;} if(lvPos<0){lvPos=0;lvDir=1;} }
 
   if(ball.moving){
-    ball.x+=ball.vx; ball.y+=ball.vy;
-    const dx=ball.target.x-ball.x, dy=ball.target.y-ball.y;
-    if(Math.abs(dx)<Math.abs(ball.vx) && Math.abs(dy)<Math.abs(ball.vy)){
-      ball.x=ball.target.x; ball.y=ball.target.y; ball.moving=false;
-      if(circlesOverlap(ball,keeper)){streak=0;} else {streak++; high=Math.max(high,streak);}
+    ball.x += ball.vx; ball.y += ball.vy;
+    const dx = ball.target.x - ball.x, dy = ball.target.y - ball.y;
+    if(Math.abs(dx) < Math.abs(ball.vx) && Math.abs(dy) < Math.abs(ball.vy)){
+      ball.x = ball.target.x; ball.y = ball.target.y; ball.moving = false;
+      if(circlesOverlap(ball, keeper)){ streak = 0; } else { streak++; high = Math.max(high, streak); }
       updateScore(); setTimeout(resetPositions,700);
     }
   }
-  if(keeper.moving){
-    keeper.x+=keeper.vx; keeper.y+=keeper.vy;
-    const dx=keeper.target.x-keeper.x, dy=keeper.target.y-keeper.y;
-    if(Math.abs(dx)<Math.abs(keeper.vx) && Math.abs(dy)<Math.abs(keeper.vy)){
-      keeper.x=keeper.target.x; keeper.y=keeper.target.y; keeper.moving=false;
-    }
-  }
+  if(keeper.moving){ keeper.x += keeper.vx; keeper.y += keeper.vy; const dx = keeper.target.x-keeper.x, dy = keeper.target.y-keeper.y;
+    if(Math.abs(dx) < Math.abs(keeper.vx) && Math.abs(dy) < Math.abs(keeper.vy)){ keeper.x = keeper.target.x; keeper.y = keeper.target.y; keeper.moving=false; } }
 
   ctx.clearRect(0,0,W,H);
-  drawBackground();
-  drawGoal(); drawBar(); drawKeeper(); drawBall();
+  drawBackground(); drawGoal(); drawBar(); drawKeeper(); drawBall();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -448,8 +350,85 @@ function resetPositions(){
   keeper.x=W/2; keeper.y=goalBottom-R_KEEP; keeper.vx=0; keeper.vy=0; keeper.moving=false; keeper.target=null;
   lvPos=1; lvDir=-1;
 }
-function updateScore(){streakEl.textContent=streak; highEl.textContent=high;}
-resetPositions(); updateScore();
+function updateScore(){ streakEl.textContent=streak; highEl.textContent=high; }
+
+// ---------- MOBILE & DPI RESPONSIVENESS ----------
+
+// Make canvas visually scale to available width while keeping internal logical size
+function fitCanvasToDisplay(){
+  // make canvas CSS scale to container width (done via CSS width:100%); we must compute the scale factor
+  const rect = canvas.getBoundingClientRect();
+  // compute device coordinate size for pointer mapping
+  canvas._rect = rect; // store for pointer -> logical mapping
+  // For crisp rendering: adjust internal backing store for DPR
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  // keep logical canvas size constant; we could also adapt logical size, but easier to keep it fixed
+  canvas.width = LOGICAL_W * dpr;
+  canvas.height = LOGICAL_H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // scale drawing operations
+  W = LOGICAL_W; H = LOGICAL_H;
+}
+window.addEventListener('resize', ()=>{ fitCanvasToDisplay(); });
+fitCanvasToDisplay();
+
+// Map screen/pointer coords to canvas logical coords
+function screenToLogical(clientX, clientY){
+  const r = canvas._rect || canvas.getBoundingClientRect();
+  const x = (clientX - r.left) * (LOGICAL_W / r.width);
+  const y = (clientY - r.top) * (LOGICAL_H / r.height);
+  return {x,y};
+}
+
+// ---------- TOUCH BUTTONS (simulate ArrowUp/ArrowDown) ----------
+const btnHeight = document.getElementById('btn-height');
+const btnLat = document.getElementById('btn-lat');
+
+function startHeight(){
+  // simulate keydown ArrowUp
+  chargingHeight = true; heightValue = null;
+}
+function endHeight(){
+  // simulate keyup ArrowUp
+  chargingHeight = false; heightValue = hvPos; tryShoot();
+}
+function startLat(){
+  chargingLat = true; latValue = null; lvDir = -1; lvPos = 1;
+}
+function endLat(){
+  chargingLat = false; latValue = lvPos; tryShoot();
+}
+
+// Use pointer events so mouse/touch/stylus all work
+['pointerdown','pointerup','pointercancel','pointerout','pointerleave'].forEach(evt=>{
+  btnHeight.addEventListener(evt, e=>{
+    e.preventDefault();
+    if(evt === 'pointerdown') startHeight();
+    else endHeight();
+  });
+  btnLat.addEventListener(evt, e=>{
+    e.preventDefault();
+    if(evt === 'pointerdown') startLat();
+    else endLat();
+  });
+});
+
+// Also support touchstart/touchend as fallback on some older browsers
+btnHeight.addEventListener('touchstart', e=>{ e.preventDefault(); startHeight(); }, {passive:false});
+btnHeight.addEventListener('touchend', e=>{ e.preventDefault(); endHeight(); }, {passive:false});
+btnLat.addEventListener('touchstart', e=>{ e.preventDefault(); startLat(); }, {passive:false});
+btnLat.addEventListener('touchend', e=>{ e.preventDefault(); endLat(); }, {passive:false});
+
+// Accessibility: allow tap the UI to toggle for keyboard users
+btnHeight.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' ') { startHeight(); }});
+btnHeight.addEventListener('keyup', e=>{ if(e.key==='Enter' || e.key===' ') { endHeight(); }});
+btnLat.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' ') { startLat(); }});
+btnLat.addEventListener('keyup', e=>{ if(e.key==='Enter' || e.key===' ') { endLat(); }});
+
+// prevent the page from scrolling on touch-drag over the game
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); }, {passive:false});
+
+// initial scoreboard
+updateScore();
 </script>
 </body>
 </html>
