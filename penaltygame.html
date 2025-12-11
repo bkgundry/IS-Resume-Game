@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Penalty Game — Responsive Buttons</title>
+<title>Penalty Game — Fixed (no-black-screen)</title>
 <style>
 :root{
   --goal-w:175; --goal-h:100; --ball-d:25; --keeper-d:45;
@@ -76,7 +76,7 @@ h3{margin:6px 0 10px 0;font-weight:600}
 /* pressed state */
 .touch-btn.pressed{background:#ffd54f;color:#072026}
 
-/* responsive layout fallback for narrow desktops */
+/* responsive fallback for narrow desktops */
 @media (max-width:900px){
   .wrap{flex-direction:column;gap:12px}
   .ui{width:100%}
@@ -112,7 +112,10 @@ h3{margin:6px 0 10px 0;font-weight:600}
 </div>
 
 <script>
-// -------------- core and constants (keeps previous behavior) --------------
+// ---------- safety: wrap in try so any future error doesn't block UI entirely ----------
+try{
+
+// -------------- core and constants --------------
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const LOGICAL_W = 760, LOGICAL_H = 420;
@@ -176,7 +179,6 @@ function clearButtonVisuals(){
 }
 function tryShoot(){
   if(heightValue!==null && latValue!==null && !ball.moving){
-    // finalize charging to avoid stuck states
     finalizeChargingState();
     clearButtonVisuals();
 
@@ -287,6 +289,7 @@ function drawBar(){
   ctx.fillStyle = chargingLat ? '#ffeb3b' : '#9fd6ff';
   ctx.fillRect(lvX, bar.l.y+2, 4, bar.l.h-4);
   if(latValue!==null){ const lockedX = bar.l.x + latValue*(bar.l.w-4); ctx.fillStyle='#ff6b6b'; ctx.fillRect(lockedX-1, bar.l.y+1, 6, bar.l.h-2); }
+
   ctx.restore();
 }
 function drawKeeper(){
@@ -317,7 +320,7 @@ function drawBall(){
   ctx.restore();
 }
 
-// -------------- game loop --------------
+// -------------- main loop --------------
 let last=performance.now();
 function loop(ts){
   const dt = ts - last; last = ts;
@@ -358,16 +361,13 @@ const btnLat = document.getElementById('btn-lat');
 const desktopUI = document.getElementById('desktopUI');
 
 function isTouchDevice(){
-  return ( 'ontouchstart' in window ) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+  return ( 'ontouchstart' in window ) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
 }
 
 function updateTouchUiVisibility(){
   const show = isTouchDevice();
-  if(show){
-    touchControlsEl.classList.remove('hidden');
-  } else {
-    touchControlsEl.classList.add('hidden');
-  }
+  if(show) touchControlsEl.classList.remove('hidden');
+  else touchControlsEl.classList.add('hidden');
 }
 updateTouchUiVisibility();
 
@@ -375,19 +375,15 @@ function updateOrientationClass(){
   const isLandscape = window.innerWidth > window.innerHeight;
   if(isTouchDevice() && isLandscape){
     touchControlsEl.classList.remove('portrait'); touchControlsEl.classList.add('landscape');
-    // shrink canvas visual height so buttons fit vertically
     const maxVisualHeight = Math.floor(window.innerHeight * 0.62);
     canvas.style.height = maxVisualHeight + 'px';
   } else {
     touchControlsEl.classList.remove('landscape'); touchControlsEl.classList.add('portrait');
-    // portrait: reset CSS height so canvas scales by width
     canvas.style.height = '';
   }
-  // update stored rect for pointer mapping
   canvas._rect = canvas.getBoundingClientRect();
 }
 
-// DPR & fitting
 function fitCanvasToDisplay(){
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.width = LOGICAL_W * dpr;
@@ -403,54 +399,61 @@ window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ fitCanvasToD
 
 fitCanvasToDisplay();
 
-// -------------- pointer/touch handling (robust) --------------
+// -------------- pointer/touch handling (fixed catch bug) --------------
 function updateBtnPressed(which, pressed){
   const el = which === 'height' ? btnHeight : btnLat;
   if(pressed){ el.classList.add('pressed'); el.setAttribute('aria-pressed','true'); }
   else { el.classList.remove('pressed'); el.setAttribute('aria-pressed','false'); }
 }
-
 function startHeight(){ chargingHeight = true; heightValue = null; updateBtnPressed('height', true); }
 function endHeight(){ chargingHeight = false; updateBtnPressed('height', false); heightValue = hvPos; tryShoot(); }
 function startLat(){ chargingLat = true; latValue = null; lvDir = -1; lvPos = 1; updateBtnPressed('lat', true); }
 function endLat(){ chargingLat = false; updateBtnPressed('lat', false); latValue = lvPos; tryShoot(); }
 
-// pointer events for both buttons
 ['pointerdown','pointerup','pointercancel','pointerout','pointerleave'].forEach(evt=>{
   btnHeight.addEventListener(evt, e=>{
     e.preventDefault();
-    if(evt === 'pointerdown'){ btnHeight.setPointerCapture && btnHeight.setPointerCapture(e.pointerId); startHeight(); }
-    else { try{ btnHeight.releasePointerCapture && btnHeight.releasePointerCapture(e.pointerId); }catch(_{}); endHeight(); }
+    if(evt === 'pointerdown'){ try{ btnHeight.setPointerCapture && btnHeight.setPointerCapture(e.pointerId); }catch(_){} startHeight(); }
+    else { try{ btnHeight.releasePointerCapture && btnHeight.releasePointerCapture(e.pointerId); }catch(_){} endHeight(); }
   });
   btnLat.addEventListener(evt, e=>{
     e.preventDefault();
-    if(evt === 'pointerdown'){ btnLat.setPointerCapture && btnLat.setPointerCapture(e.pointerId); startLat(); }
-    else { try{ btnLat.releasePointerCapture && btnLat.releasePointerCapture(e.pointerId); }catch(_{}); endLat(); }
+    if(evt === 'pointerdown'){ try{ btnLat.setPointerCapture && btnLat.setPointerCapture(e.pointerId); }catch(_){} startLat(); }
+    else { try{ btnLat.releasePointerCapture && btnLat.releasePointerCapture(e.pointerId); }catch(_){} endLat(); }
   });
 });
 
-// fallback for older devices
 btnHeight.addEventListener('touchstart', e=>{ e.preventDefault(); startHeight(); }, {passive:false});
 btnHeight.addEventListener('touchend', e=>{ e.preventDefault(); endHeight(); }, {passive:false});
 btnLat.addEventListener('touchstart', e=>{ e.preventDefault(); startLat(); }, {passive:false});
 btnLat.addEventListener('touchend', e=>{ e.preventDefault(); endLat(); }, {passive:false});
 
-// keyboard accessibility
 btnHeight.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' ') startHeight(); });
 btnHeight.addEventListener('keyup', e=>{ if(e.key==='Enter' || e.key===' ') endHeight(); });
 btnLat.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' ') startLat(); });
 btnLat.addEventListener('keyup', e=>{ if(e.key==='Enter' || e.key===' ') endLat(); });
 
-// prevent scrolling while touching canvas
 canvas.addEventListener('touchstart', e=>{ e.preventDefault(); }, {passive:false});
 
-// ensure no stuck charging on page focus/blur
 window.addEventListener('blur', ()=>{ finalizeChargingState(); clearButtonVisuals(); });
 window.addEventListener('visibilitychange', ()=>{ if(document.hidden){ finalizeChargingState(); clearButtonVisuals(); } });
 
-// final init
-resetPositions(); updateScore();
+// init
+resetPositions();
+updateScore();
 
+} catch (err) {
+  // Last-resort: if something still breaks, show the error and avoid a black screen
+  console.error('Game init error', err);
+  document.body.style.background = '#111';
+  const ebox = document.createElement('pre');
+  ebox.style.color = '#f88';
+  ebox.style.background = '#200';
+  ebox.style.padding = '12px';
+  ebox.style.whiteSpace = 'pre-wrap';
+  ebox.textContent = 'Initialization error: ' + (err && err.stack ? err.stack : String(err));
+  document.body.appendChild(ebox);
+}
 </script>
 </body>
 </html>
