@@ -1,0 +1,37 @@
+body {
+    background-image: url(https://www.shutterstock.com/image-photo/sports-stadium-lights-background-textured-600nw-2224117381.jpg);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color:lightsalmon;
+    font-family:'Times New Roman', Times, serif;
+}
+
+h2 {
+    text-decoration:overline;
+    color:limegreen;
+}
+
+h3 {
+    text-decoration:underline;
+}
+
+h4 {
+    text-decoration:underline dotted;
+    color:black;
+    font-size:24px;
+    font-family:Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
+    text-align:center;
+}
+
+.center {
+    text-align: center;
+    text-decoration:wavy underline;
+    color:cyan;
+}
+
+.red {
+    color: red;
+    font-family:Verdana, Geneva, Tahoma, sans-serif
+}
